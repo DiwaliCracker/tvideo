@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Video.js with WebVTT Thumbnails</title>
+    <style>
+        iframe {
+            width: 100%;
+            height: 500px;
+            border: none;
+        }
+
+        .vjs-thumbnail-holder {
+            position: absolute;
+            bottom: 45px;
+            left: 0;
+            width: 160px;
+            height: 90px;
+            background-color: #000;
+            background-size: cover;
+            display: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Placeholder for iframe -->
+    <iframe id="video-iframe"></iframe>
+
+    <script>
+        // Function to get URL parameters
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        // Get the video file URL and WebVTT thumb URL from parameters
+        const fileUrl = getUrlParameter('file');
+        const thumbUrl = getUrlParameter('thumb');
+
+        // Load the video embed URL into the iframe
+        const iframe = document.getElementById('video-iframe');
+        iframe.src = fileUrl;
+
+        iframe.onload = function () {
+            const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
+
+            // Check if the Video.js player is loaded inside the iframe
+            const embeddedPlayer = iframeDocument.querySelector('.video-js');
+
+            if (embeddedPlayer && thumbUrl) {
+                const player = iframe.contentWindow.videojs(embeddedPlayer);
+
+                const thumbnailHolder = iframeDocument.createElement('div');
+                thumbnailHolder.classList.add('vjs-thumbnail-holder');
+                iframeDocument.body.appendChild(thumbnailHolder);
+
+                fetch(thumbUrl)
+                    .then(response => response.text())
+                    .then(vttText => {
+                        const vttParser = new iframe.contentWindow.WebVTT.Parser(window, WebVTT.StringDecoder());
+                        const cues = [];
+                        vttParser.oncue = function(cue) {
+                            cues.push(cue);
+                        };
+                        vttParser.parse(vttText);
+                        vttParser.flush();
+
+                        player.on('timeupdate', function() {
+                            const currentTime = player.currentTime();
+                            let thumbnailUrl = null;
+
+                            for (const cue of cues) {
+                                if (currentTime >= cue.startTime && currentTime <= cue.endTime) {
+                                    thumbnailUrl = cue.text;
+                                    break;
+                                }
+                            }
+
+                            if (thumbnailUrl) {
+                                thumbnailHolder.style.backgroundImage = `url(${thumbnailUrl})`;
+                                thumbnailHolder.style.display = 'block';
+                            } else {
+                                thumbnailHolder.style.display = 'none';
+                            }
+                        });
+
+                        player.on('mouseout', function() {
+                            thumbnailHolder.style.display = 'none';
+                        });
+
+                        player.on('mousemove', function(event) {
+                            const progressControl = player.controlBar.progressControl;
+                            const progressRect = progressControl.el().getBoundingClientRect();
+                            const mouseTime = player.currentTime() * ((event.pageX - progressRect.left) / progressRect.width);
+
+                            for (const cue of cues) {
+                                if (mouseTime >= cue.startTime && mouseTime <= cue.endTime) {
+                                    thumbnailHolder.style.backgroundImage = `url(${cue.text})`;
+                                    thumbnailHolder.style.left = `${event.pageX - (thumbnailHolder.offsetWidth / 2)}px`;
+                                    thumbnailHolder.style.display = 'block';
+                                    break;
+                                } else {
+                                    thumbnailHolder.style.display = 'none';
+                                }
+                            }
+                        });
+                    });
+            }
+        };
+    </script>
+
+</body>
+</html>
